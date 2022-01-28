@@ -169,38 +169,54 @@ def get_leave_requests(qp, emp_id,is_hr=False):
         return leave_requests, qp_serializer.errors
 
 
-def get_leave_balance(year,emp_id,is_hr=False):
+def get_leave_balance(year,emp_id,is_hr=False, is_download = False):
 
     all_emp_leaves_balance = []
-    if(is_hr.lower() == 'true'):
-        emp_leaves_balance = Employee.objects.filter(status=1).prefetch_related(Prefetch(
-            "leavebalance_set",
-            queryset=LeaveBalance.objects.filter(year=year) 
-        )).filter().annotate(
-            total_leave_bal = Coalesce(Sum(Case(When(Q(leavebalance__year=year),then=F'leavebalance__leave_credits'),default=0.0)),V(0))
-        )
+    if(is_hr == True or type(is_hr) == str and is_hr.lower() == 'true'):
+        if (is_download):
+            emp_leaves_balance = Employee.objects.filter(emp_id = emp_id).prefetch_related(Prefetch(
+                "leavebalance_set",
+                queryset=LeaveBalance.objects.filter(Q(year=year) &  Q(acted_by = 'hr')) 
+            )).filter(leavebalance__year = year, leavebalance__acted_by = 'hr').annotate(total_leave_bal = Coalesce(Sum(Case(When(Q(leavebalance__year=year),then=F'leavebalance__leave_credits'),default=0.0)),V(0)), comments = F('leavebalance__comments') , month = F('leavebalance__month'),createddate = F('leavebalance__created'))
+        else:
+            emp_leaves_balance = Employee.objects.filter(status=1).prefetch_related(Prefetch(
+                "leavebalance_set",
+                queryset=LeaveBalance.objects.filter(year=year) 
+            )).filter().annotate(
+                total_leave_bal = Coalesce(Sum(Case(When(Q(leavebalance__year=year),then=F'leavebalance__leave_credits'),default=0.0)),V(0))
+            )
     else:
-        emp_leaves_balance = Employee.objects.filter(emp_id=emp_id).prefetch_related(Prefetch(
-            "leavebalance_set",
-            queryset=LeaveBalance.objects.filter(year=year) 
-        )).annotate(
-            total_leave_bal = Coalesce(Sum(Case(When(Q(leavebalance__year=year),then=F'leavebalance__leave_credits'),default=0.0)),V(0))
-        )
+        if (is_download):
+            emp_leaves_balance = Employee.objects.filter(emp_id = emp_id).prefetch_related(Prefetch(
+                "leavebalance_set",
+                queryset=LeaveBalance.objects.filter(Q(year=year) &  Q(acted_by = 'hr')) 
+            )).filter(leavebalance__year = year, leavebalance__acted_by = 'hr').annotate(total_leave_bal = Coalesce(Sum(Case(When(Q(leavebalance__year=year),then=F'leavebalance__leave_credits'),default=0.0)),V(0)), comments = F('leavebalance__comments') , month = F('leavebalance__month'),createddate = F('leavebalance__created'))
+        else:
+            emp_leaves_balance = Employee.objects.filter(emp_id=emp_id).prefetch_related(Prefetch(
+                "leavebalance_set",
+                queryset=LeaveBalance.objects.filter(year=year) 
+            )).annotate(
+                total_leave_bal = Coalesce(Sum(Case(When(Q(leavebalance__year=year),then=F'leavebalance__leave_credits'),default=0.0)),V(0))
+            )
+    if (is_download):
+        for each_emp_leave_bal in emp_leaves_balance.values('staff_no','emp_name', 'total_leave_bal', 'comments', 'month', 'createddate'):
+            each_emp_leave_bal.update({'year':year})
+            all_emp_leaves_balance.append(each_emp_leave_bal)
+    else:
+        for each_emp_leave_bal in emp_leaves_balance.values('emp_id','email','emp_name', 'company','staff_no', 'role_id', 'total_leave_bal'):
+            # print(each_emp_leave_bal)
+            leave_statuses = [LeaveRequestStatus.Pending.value,LeaveRequestStatus.Approved.value,LeaveRequestStatus.AutoApprovedEmp.value,LeaveRequestStatus.AutoApprovedMgr.value]
+            is_paid_and_valid_status = Q(leaverequest__leave_type__name='Paid') & Q(leaverequest__status__in=leave_statuses) & (Q(leaverequest__leavediscrepancy__status__in=[LeaveDiscrepancyStatus.Rejected.value,LeaveDiscrepancyStatus.Pending.value]) | Q(leaverequest__leavediscrepancy__status__isnull=True))
 
-    for each_emp_leave_bal in emp_leaves_balance.values('emp_id','email','emp_name', 'company','staff_no', 'role_id', 'total_leave_bal'):
-        # print(each_emp_leave_bal)
-        leave_statuses = [LeaveRequestStatus.Pending.value,LeaveRequestStatus.Approved.value,LeaveRequestStatus.AutoApprovedEmp.value,LeaveRequestStatus.AutoApprovedMgr.value]
-        is_paid_and_valid_status = Q(leaverequest__leave_type__name='Paid') & Q(leaverequest__status__in=leave_statuses) & (Q(leaverequest__leavediscrepancy__status__in=[LeaveDiscrepancyStatus.Rejected.value,LeaveDiscrepancyStatus.Pending.value]) | Q(leaverequest__leavediscrepancy__status__isnull=True))
-
-        emp_leave_requests = Employee.objects.filter(emp_id=each_emp_leave_bal["emp_id"],leaverequest__leave__leave_on__year=year).filter().prefetch_related("leaverequest_set", Prefetch("leaverequest_set__leave_set",queryset=Leave.objects.filter(leave_on__year=year))).aggregate(
-            consumed = Coalesce(Sum(Case( When(Q(leaverequest__leave__day_leave_type='FULL') & is_paid_and_valid_status, then=1.0),
-            When(Q(leaverequest__leave__day_leave_type='FIRST_HALF')& is_paid_and_valid_status, then=0.5),
-            When(Q(leaverequest__leave__day_leave_type='SECOND_HALF')& is_paid_and_valid_status, then=0.5),default=0.0,output_field=FloatField(),)),V(0)))
-        each_emp_leave_bal.update(emp_leave_requests)
-        # print(each_emp_leave_bal['total_leave_bal'],)
-        each_emp_leave_bal.update({'outstanding_leave_bal':each_emp_leave_bal['total_leave_bal'] - emp_leave_requests['consumed'] })
-        each_emp_leave_bal.update({'year':year})
-        all_emp_leaves_balance.append(each_emp_leave_bal)
+            emp_leave_requests = Employee.objects.filter(emp_id=each_emp_leave_bal["emp_id"],leaverequest__leave__leave_on__year=year).filter().prefetch_related("leaverequest_set", Prefetch("leaverequest_set__leave_set",queryset=Leave.objects.filter(leave_on__year=year))).aggregate(
+                consumed = Coalesce(Sum(Case( When(Q(leaverequest__leave__day_leave_type='FULL') & is_paid_and_valid_status, then=1.0),
+                When(Q(leaverequest__leave__day_leave_type='FIRST_HALF')& is_paid_and_valid_status, then=0.5),
+                When(Q(leaverequest__leave__day_leave_type='SECOND_HALF')& is_paid_and_valid_status, then=0.5),default=0.0,output_field=FloatField(),)),V(0)))
+            each_emp_leave_bal.update(emp_leave_requests)
+            # print(each_emp_leave_bal['total_leave_bal'],)
+            each_emp_leave_bal.update({'outstanding_leave_bal':each_emp_leave_bal['total_leave_bal'] - emp_leave_requests['consumed'] })
+            each_emp_leave_bal.update({'year':year})
+            all_emp_leaves_balance.append(each_emp_leave_bal)
     return all_emp_leaves_balance
 
 def getLeaveDaysCnt(emp_id,startdate, enddate):

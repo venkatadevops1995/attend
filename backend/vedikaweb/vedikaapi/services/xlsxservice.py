@@ -53,6 +53,9 @@ class ExcelServices:
                     self.writeExcel(dataList[i],worksheet=self.multiWorksheet[i],row_start=0,closeFlag=False,formulaColms=[4])
                 else:
                     self.writeExcel(dataList[i],worksheet=self.multiWorksheet[i],row_start=0,datetimeColList=[5],customFormat={'num_format':'HH:MM'},closeFlag=False)
+            elif(i == 2):
+                self.writeExcel(dataList[i],worksheet=self.multiWorksheet[i],row_start=0,closeFlag=False)
+
             else:
                 self.writeExcel(dataList[i],worksheet=self.multiWorksheet[i],row_start=0,datetimeColList=[5,6],customFormat={'num_format':'[HH]:MM'},closeFlag=False)
         self.workbook.close()
