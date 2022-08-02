@@ -672,6 +672,7 @@ class ApproveEmpTimesheet(APIView):
                 emp_id = serialized.data['emp_id']
                 work_week = serialized.data['work_week']
                 year = serialized.data['year']
+                years = [year, str(int(year) + 1)]
                 status = serialized.data['status']
                 comments = request.data.get('comments', '')
                 emp_obj = Employee.objects.prefetch_related('emp').filter(emp_id=emp_id).last()
@@ -684,15 +685,16 @@ class ApproveEmpTimesheet(APIView):
                     individual_email_access_emps = list(map(lambda x:x.emp_id,EmailAccessGroup.objects.filter(status=2)))
                 managers_list=list(map(lambda x:x.manager_id,emp_obj.emp.filter(status=1,priority=3)))
                 comments_utf_format=smart_str(comments, encoding='utf-8', strings_only=False, errors='strict')
-                approve_status_data = EmployeeWorkApproveStatus.objects.filter(emp_id = emp_id,work_week=work_week)
+                approve_status_data = EmployeeWorkApproveStatus.objects.filter(emp_id = emp_id,work_week=work_week,created__year__in=years)
+                print("data is :", approve_status_data)
                 if len(approve_status_data) == 0:
-                    insert_approve_status = EmployeeWorkApproveStatus(emp_id = emp_id,work_week = work_week,comments = comments_utf_format,status = status)
+                    insert_approve_status = EmployeeWorkApproveStatus(emp_id = emp_id,work_week = work_week,comments = comments_utf_format,status = status,created__year__in=years)
                     insert_approve_status.save()
                 else:
                     if comments != '':
-                        EmployeeWorkApproveStatus.objects.filter(emp_id = emp_id,work_week=work_week).update(comments = comments_utf_format,status = status)
+                        EmployeeWorkApproveStatus.objects.filter(emp_id = emp_id,work_week=work_week).update(comments = comments_utf_format,status = status,created__year__in=years)
                     else:
-                        EmployeeWorkApproveStatus.objects.filter(emp_id = emp_id,work_week=work_week).update(status = status)
+                        EmployeeWorkApproveStatus.objects.filter(emp_id = emp_id,work_week=work_week,created__year__in=years).update(status = status)
                 
                 if((any(item in accessed_managers for item in managers_list) or emp_id in individual_email_access_emps) and status==WorkApprovalStatuses.Rejected.value):
                     # template = get_template('reject.html')
